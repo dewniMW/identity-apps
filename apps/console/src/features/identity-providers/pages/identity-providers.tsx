@@ -289,7 +289,7 @@ const IdentityProvidersPage: FunctionComponent<IDPPropsInterface> = (
             } }
             sidebarToggleTooltip={ t("devPortal:components.helpPanel.actions.open") }
             pinButtonTooltip={ t("devPortal:components.helpPanel.actions.pin") }
-            unPinButtonTooltip={ t("devPortal:components.helpPanel.actions.unPin") }
+            unpinButtonTooltip={ t("devPortal:components.helpPanel.actions.unPin") }
         >
             <PageLayout
                 action={
@@ -350,6 +350,35 @@ const IdentityProvidersPage: FunctionComponent<IDPPropsInterface> = (
                     data-testid={ `${ testId }-list-layout` }
                 >
                     <IdentityProviderList
+                        advancedSearch={
+                            <AdvancedSearchWithBasicFilters
+                                onFilter={ handleIdentityProviderFilter }
+                                filterAttributeOptions={ [
+                                    {
+                                        key: 0,
+                                        text: t("common:name"),
+                                        value: "name"
+                                    }
+                                ] }
+                                filterAttributePlaceholder={
+                                    t("devPortal:components.idp.advancedSearch.form.inputs.filterAttribute" +
+                                        ".placeholder")
+                                }
+                                filterConditionsPlaceholder={
+                                    t("devPortal:components.idp.advancedSearch.form.inputs.filterCondition" +
+                                        ".placeholder")
+                                }
+                                filterValuePlaceholder={
+                                    t("devPortal:components.idp.advancedSearch.form.inputs.filterValue" +
+                                        ".placeholder")
+                                }
+                                placeholder={ t("devPortal:components.idp.advancedSearch.placeholder") }
+                                defaultSearchAttribute="name"
+                                defaultSearchOperator="co"
+                                triggerClearQuery={ triggerClearQuery }
+                                data-testid={ `${ testId }-advance-search` }
+                            />
+                        }
                         isLoading={ isIdPListRequestLoading }
                         list={ idpList }
                         onEmptyListPlaceholderActionClick={

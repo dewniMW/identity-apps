@@ -16,7 +16,7 @@
  * under the License.
  */
 
-import { DangerZone, NotificationItem, Page, Placeholder, Notification } from "../common";
+import { DangerZone, ModalInterface, Notification, NotificationItem, Page, Placeholder } from "../common";
 
 /**
  * Model for the user portal portal namespace
@@ -681,6 +681,10 @@ export interface UserPortalNS {
                 terminateUserSession: Notification;
             };
         };
+    };
+    modals: {
+        editAvatarModal: ModalInterface;
+        sessionTimeoutModal: ModalInterface;
     };
     pages: {
         applications: Page;

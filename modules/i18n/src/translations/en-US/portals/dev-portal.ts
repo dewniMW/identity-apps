@@ -19,7 +19,43 @@
 import { DevPortalNS } from "../../../models";
 
 export const devPortal: DevPortalNS = {
+    componentExtensions: {
+        component: {
+            application: {
+                quickStart: {
+                    title: "Quick Start"
+                }
+            }
+        }
+    },
     components: {
+        URLInput: {
+            withLabel: {
+                negative: {
+                    content: "The origin of the redirect URL {{url}} is not allowed to make CORS requests to WSO2 " +
+                        "Identity Server APIs.",
+                    detailedContent: {
+                        0: "By default WSO2 Identity Server APIs blocks CORS requests. But this can also prevent " +
+                            "legitimate requests from known",
+                        1: "Therefore enabling CORS for this origin will allow you to access Identity Server APIs " +
+                            "from the applications registered in the <1>{{ tenantName }}</1> tenant domain."
+                    },
+                    header: "CORS Not Allowed",
+                    leftAction: "Allow"
+                },
+                positive: {
+                    content: "The origin of the redirect URL {{url}} is allowed to make CORS requests to WSO2 " +
+                        "Identity Server APIs.",
+                    detailedContent: {
+                        0: "By default WSO2 Identity Server APIs blocks CORS requests. But this can also prevent " +
+                            "legitimate requests from known",
+                        1: "Therefore enabling CORS for this origin will allow you to access Identity Server APIs " +
+                            "from the applications registered in the <1>{{ tenantName }}</1> tenant domain."
+                    },
+                    header: "CORS is Allowed"
+                }
+            }
+        },
         advancedSearch: {
             form: {
                 inputs: {
@@ -61,153 +97,6 @@ export const devPortal: DevPortalNS = {
                 dropdown: "Show options"
             },
             resultsIndicator: "Showing results for the query \"{{query}}\""
-        },
-        remoteConfig: {
-            pageTitles: {
-                listingPage: {
-                    title: "Remote Repository Deployment Configuration",
-                    description: "Configure a remote repository to work seamlessly with the identity server."
-                },
-                editPage: {
-                    title: "Edit Configuration : ",
-                    description: "Edit remote repository configurations.",
-                    backLink: "Back to configurations"
-                }
-            },
-            createConfigForm: {
-                configName: {
-                    label: "Configuration Name",
-                    placeholder: "Name for the repository configuration",
-                    requiredMessage: "Configuration Name is required."
-                },
-                gitUrl: {
-                    label: "Git Repository URI",
-                    placeholder: "Link for github repository URL.",
-                    requiredMessage: "Git Repository URL is required."
-                },
-                gitBranch: {
-                    label: "Git Branch",
-                    placeholder: "github branch location",
-                    requiredMessage: "Git Branch is required."
-                },
-                gitDirectory: {
-                    label: "Git Directory",
-                    placeholder: "github directory location",
-                    requiredMessage: "Git directory is required."
-                },
-                gitUserName: {
-                    label: "Git User Name",
-                    placeholder: "Username of the github account."
-                },
-                gitAccessToken: {
-                    label: "Personal Access Token",
-                    placeholder: "Access token for the github account."
-                },
-                enableConfig: {
-                    label: "Enable Configuration"
-                }
-            },
-            placeholders: {
-                emptyList: {
-                    action: "New Remote Repository Config",
-                    subtitles: {
-                        0: "Currently there are no configs available.",
-                        1: "You can add a new config by ",
-                        2: "clicking on the button below."
-                    },
-                    title: "Add new Remote Repository Config"
-                },
-                emptyDetails: {
-                    subtitles: {
-                        0: "The configuration is not yet deployed.",
-                        1: "Please deploy the configuration and check back."
-                    },
-                    title: "Configuration is not deployed."
-                }
-            },
-            list: {
-                confirmations: {
-                    deleteConfig: {
-                        assertionHint: "Please type <1>{{ name }}</1> to confirm.",
-                        content: "If you delete this configuration, you will not be able to get it back." +
-                            "Please proceed with caution.",
-                        header: "Are you sure?",
-                        message: "This action is irreversible and will permanently delete the configuration."
-                    }
-                }
-            },
-            notifications: {
-                deleteConfig: {
-                    error: {
-                        description: "{{description}}",
-                        message: "Deletion Error"
-                    },
-                    genericError: {
-                        description: "Failed to delete the configuration",
-                        message: "Something went wrong"
-                    },
-                    success: {
-                        description: "Successfully deleted the configuration.",
-                        message: "Deletetion successful"
-                    }
-                },
-                triggerConfig: {
-                    error: {
-                        description: "{{description}}",
-                        message: "Trigger Error"
-                    },
-                    genericError: {
-                        description: "Failed to trigger the configuration",
-                        message: "Something went wrong"
-                    },
-                    success: {
-                        description: "Successfully triggered the configuration.",
-                        message: "Trigger successful"
-                    }
-                },
-                editConfig: {
-                    error: {
-                        description: "{{description}}",
-                        message: "Edit Error"
-                    },
-                    genericError: {
-                        description: "Failed to edit the configuration",
-                        message: "Something went wrong"
-                    },
-                    success: {
-                        description: "Successfully edited the configuration.",
-                        message: "Edit successful"
-                    }
-                },
-                createConfig: {
-                    error: {
-                        description: "{{description}}",
-                        message: "Creation Error"
-                    },
-                    genericError: {
-                        description: "Failed to create the configuration",
-                        message: "Something went wrong"
-                    },
-                    success: {
-                        description: "Successfully created the confuguration.",
-                        message: "Creation successful"
-                    }
-                },
-                getConfig: {
-                    error: {
-                        description: "{{description}}",
-                        message: "Creation Error"
-                    },
-                    genericError: {
-                        description: "Failed to retrieve the configuration",
-                        message: "Something went wrong"
-                    },
-                    success: {
-                        description: "Successfully created the confuguration.",
-                        message: "Creation successful"
-                    }
-                }
-            }
         },
         applications: {
             addWizard: {
@@ -746,13 +635,22 @@ export const devPortal: DevPortalNS = {
                 },
                 inboundOIDC: {
                     fields: {
+                        allowedOrigins: {
+                            hint: "Allowed Origins are URLs that will be allowed to make requests from cross " +
+                                "origins to WSO2 Identity Server APIs",
+                            label: "Allowed Origins",
+                            placeholder: "Enter allowed origins",
+                            validations: {
+                                empty: "Please add a valid origin."
+                            }
+                        },
                         callBackUrls: {
                             hint: "After the authentication, we will only redirect to the above redirect URLs " +
                                 "and you can specify multiple URLs",
                             label: "Redirect URLs",
                             placeholder: "Enter redirect URLs",
                             validations: {
-                                empty: "Please add valid URL."
+                                empty: "Please add a valid URL."
                             }
                         },
                         clientID: {
@@ -795,8 +693,17 @@ export const devPortal: DevPortalNS = {
                                         empty: "Please fill the user access token expiry time"
                                     }
                                 },
+                                revokeToken: {
+                                    hint: "Allow to revoke tokens of this application when a bound IDP session " +
+                                        "gets terminated",
+                                    label: "Revoke tokens when the IDP session terminates"
+                                },
                                 type: {
                                     label: "Token type"
+                                },
+                                validateBinding: {
+                                    hint: "Enable token binding validation during the API invocations",
+                                    label: "Validate token bindings"
                                 }
                             },
                             heading: "Access Token",
@@ -1317,6 +1224,47 @@ export const devPortal: DevPortalNS = {
                         content: null,
                         heading: "Docs"
                     },
+                    samples: {
+                        content: {
+                            sample: {
+                                configurations: {
+                                    btn: "Download the Configuration",
+                                    subTitle: "In order to integrate the application created in the server with " +
+                                        "the sample application, you need to initialise the client with following " +
+                                        "configurations.",
+                                    title: "Initialize the client"
+                                },
+                                downloadSample: {
+                                    btn: "Download the sample",
+                                    subTitle: "This sample application will show case the usage of the of WSO2 " +
+                                        "Identity Server SDK and how you can integrate any application with Identity " +
+                                        "Server.",
+                                    title: "Try out the sample"
+                                },
+                                goBack: "Go back",
+                                subTitle: "Quickly start prototyping by downloading our preconfigured sample " +
+                                    "application.",
+                                title: "Sample Applications"
+                            },
+                            technology: {
+                                subTitle: "Sample and required SDKs along with useful information will be provided " +
+                                    "once you select a technology",
+                                title: "Select a technology"
+                            }
+                        },
+                        heading: "Samples"
+                    },
+                    sdks: {
+                        content: {
+                            sdk: {
+                                goBack: "Go back",
+                                subTitle: "Following software development kits can be used to jump start your " +
+                                    "application development.",
+                                title: "Software Development Kits (SDKs)"
+                            }
+                        },
+                        heading: "SDKs"
+                    },
                     start: {
                         content: {
                             endpoints: {
@@ -1364,53 +1312,16 @@ export const devPortal: DevPortalNS = {
                             }
                         },
                         heading: "What's Next?"
-                    },
-                    samples: {
-                        content: {
-                            sample: {
-                                configurations: {
-                                    btn: "Download the Configuration",
-                                    subTitle: "In order to integrate the application created in the server with " +
-                                        "the sample application, you need to initialise the client with following " +
-                                        "configurations.",
-                                    title: "Initialize the client"
-                                },
-                                downloadSample: {
-                                    btn: "Download the sample",
-                                    subTitle: "This sample application will show case the usage of the of WSO2 " +
-                                        "Identity Server SDK and how you can integrate any application with Identity " +
-                                        "Server.",
-                                    title: "Try out the sample"
-                                },
-                                goBack: "Go back",
-                                subTitle: "Quickly start prototyping by downloading our preconfigured sample " +
-                                    "application.",
-                                title: "Sample Applications"
-                            },
-                            technology: {
-                                subTitle: "Sample and required SDKs along with useful information will be provided " +
-                                    "once you select a technology",
-                                title: "Select a technology"
-                            }
-                        },
-                        heading: "Samples"
-                    },
-                    sdks: {
-                        content: {
-                            sdk: {
-                                goBack: "Go back",
-                                subTitle: "Following software development kits can be used to jump start your " +
-                                    "application development.",
-                                title: "Software Development Kits (SDKs)"
-                            }
-                        },
-                        heading: "SDKs"
                     }
                 }
             },
             list: {
                 actions: {
                     add: "New Application"
+                },
+                columns: {
+                    actions: "Actions",
+                    name: "Name"
                 }
             },
             notifications: {
@@ -1473,6 +1384,20 @@ export const devPortal: DevPortalNS = {
                         description: "There is an empty authentication step. Please remove it or add authenticators " +
                             "to proceed.",
                         message: "Update error"
+                    }
+                },
+                fetchAllowedCORSOrigins: {
+                    error: {
+                        description: "{{description}}",
+                        message: "Retrieval error"
+                    },
+                    genericError: {
+                        description: "Couldn't retrieve allowed CORS Origins.",
+                        message: "Something went wrong"
+                    },
+                    success: {
+                        description: "Successfully retrieved allowed CORS Origins.",
+                        message: "Retrieval successful"
                     }
                 },
                 fetchApplication: {
@@ -1804,7 +1729,7 @@ export const devPortal: DevPortalNS = {
                 minimalAppCreationWizard: {
                     help: {
                         heading: "Help",
-                        subHeading: "Use the following as a guidance",
+                        subHeading: "Use the following as a guidance"
                     }
                 }
             }
@@ -2075,6 +2000,10 @@ export const devPortal: DevPortalNS = {
                         heading: "Docs"
                     }
                 }
+            },
+            list: {
+                actions: "Actions",
+                name: "Name"
             },
             modals: {
                 addAuthenticator: {
@@ -2701,6 +2630,10 @@ export const devPortal: DevPortalNS = {
                 }
             },
             list: {
+                columns: {
+                    actions: "Actions",
+                    name: "Name"
+                },
                 empty: {
                     action: "Add OIDC Scope",
                     subtitles: {
@@ -2822,6 +2755,17 @@ export const devPortal: DevPortalNS = {
                         description: "Successfully updated the OIDC scope.",
                         message: "Update successful"
                     }
+                }
+            },
+            placeholders:{
+                emptyList: {
+                    action: "New OIDC Scope",
+                    subtitles: {
+                        0: "Currently there are no OIDC scopes.",
+                        1: "You can add a new OIDC scope easily by following the",
+                        2: "steps in the creation wizard."
+                    },
+                    title: "Add a new OIDC Scope"
                 }
             },
             wizards: {
@@ -3081,6 +3025,160 @@ export const devPortal: DevPortalNS = {
                 }
             }
         },
+        remoteConfig: {
+            createConfigForm: {
+                configName: {
+                    label: "Configuration Name",
+                    placeholder: "Name for the repository configuration",
+                    requiredMessage: "Configuration Name is required."
+                },
+                enableConfig: {
+                    label: "Enable Configuration"
+                },
+                gitAccessToken: {
+                    label: "Personal Access Token",
+                    placeholder: "Access token for the github account."
+                },
+                gitBranch: {
+                    label: "Git Branch",
+                    placeholder: "github branch location",
+                    requiredMessage: "Git Branch is required."
+                },
+                gitDirectory: {
+                    label: "Git Directory",
+                    placeholder: "github directory location",
+                    requiredMessage: "Git directory is required."
+                },
+                gitUrl: {
+                    label: "Git Repository URI",
+                    placeholder: "Link for github repository URL.",
+                    requiredMessage: "Git Repository URL is required."
+                },
+                gitUserName: {
+                    label: "Git User Name",
+                    placeholder: "Username of the github account."
+                }
+            },
+            list: {
+                columns: {
+                    actions: "Actions",
+                    failedDeployments: "Failed Deployments",
+                    lastDeployed: "Last Deployed",
+                    name: "Name",
+                    successfulDeployments: "Successful Deployments"
+                },
+                confirmations: {
+                    deleteConfig: {
+                        assertionHint: "Please type <1>{{ name }}</1> to confirm.",
+                        content: "If you delete this configuration, you will not be able to get it back." +
+                            "Please proceed with caution.",
+                        header: "Are you sure?",
+                        message: "This action is irreversible and will permanently delete the configuration."
+                    }
+                }
+            },
+            notifications: {
+                createConfig: {
+                    error: {
+                        description: "{{description}}",
+                        message: "Creation Error"
+                    },
+                    genericError: {
+                        description: "Failed to create the configuration",
+                        message: "Something went wrong"
+                    },
+                    success: {
+                        description: "Successfully created the confuguration.",
+                        message: "Creation successful"
+                    }
+                },
+                deleteConfig: {
+                    error: {
+                        description: "{{description}}",
+                        message: "Deletion Error"
+                    },
+                    genericError: {
+                        description: "Failed to delete the configuration",
+                        message: "Something went wrong"
+                    },
+                    success: {
+                        description: "Successfully deleted the configuration.",
+                        message: "Deletion successful"
+                    }
+                },
+                editConfig: {
+                    error: {
+                        description: "{{description}}",
+                        message: "Edit Error"
+                    },
+                    genericError: {
+                        description: "Failed to edit the configuration",
+                        message: "Something went wrong"
+                    },
+                    success: {
+                        description: "Successfully edited the configuration.",
+                        message: "Edit successful"
+                    }
+                },
+                getConfig: {
+                    error: {
+                        description: "{{description}}",
+                        message: "Creation Error"
+                    },
+                    genericError: {
+                        description: "Failed to retrieve the configuration",
+                        message: "Something went wrong"
+                    },
+                    success: {
+                        description: "Successfully created the confuguration.",
+                        message: "Creation successful"
+                    }
+                },
+                triggerConfig: {
+                    error: {
+                        description: "{{description}}",
+                        message: "Trigger Error"
+                    },
+                    genericError: {
+                        description: "Failed to trigger the configuration",
+                        message: "Something went wrong"
+                    },
+                    success: {
+                        description: "Successfully triggered the configuration.",
+                        message: "Trigger successful"
+                    }
+                }
+            },
+            pageTitles: {
+                editPage: {
+                    backLink: "Back to configurations",
+                    description: "Edit remote repository configurations.",
+                    title: "Edit Configuration : "
+                },
+                listingPage: {
+                    description: "Configure a remote repository to work seamlessly with the identity server.",
+                    title: "Remote Repository Deployment Configuration"
+                }
+            },
+            placeholders: {
+                emptyDetails: {
+                    subtitles: {
+                        0: "The configuration is not yet deployed.",
+                        1: "Please deploy the configuration and check back."
+                    },
+                    title: "Configuration is not deployed."
+                },
+                emptyList: {
+                    action: "New Remote Repository Config",
+                    subtitles: {
+                        0: "Currently there are no configs available.",
+                        1: "You can add a new config by ",
+                        2: "clicking on the button below."
+                    },
+                    title: "Add new Remote Repository Config"
+                }
+            }
+        },
         sidePanel: {
             applicationEdit: "Application Edit",
             applicationTemplates: "Application Templates",
@@ -3213,15 +3311,6 @@ export const devPortal: DevPortalNS = {
             subTitle: "Configure and  manage applications, identity providers, users and roles, attribute dialects, " +
                 "etc.",
             title: "Welcome, {{firstName}}"
-        }
-    },
-    componentExtensions: {
-        component: {
-            application: {
-                quickStart: {
-                    title: "Quick Start"
-                }
-            }
         }
     },
     placeholders: {
