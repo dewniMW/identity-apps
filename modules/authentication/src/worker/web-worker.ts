@@ -28,7 +28,11 @@ import {
     SCOPE,
     SESSION_STATE,
     SIGNED_IN,
-    USERNAME
+    TENANT_DOMAIN,
+    USERNAME,
+    ID_TOKEN,
+    SIGN_IN_REDIRECT_URL,
+    SIGN_OUT_REDIRECT_URL
 } from "../constants";
 import { AxiosHttpClient, AxiosHttpClientInstance } from "../http-client";
 import {
@@ -40,7 +44,8 @@ import {
     WebWorkerClientConfigInterface,
     WebWorkerConfigInterface,
     WebWorkerInterface,
-    WebWorkerSingletonInterface
+    WebWorkerSingletonInterface,
+    SignInResponseWorker
 } from "../models";
 import {
     customGrant as customGrantUtil,
@@ -51,7 +56,9 @@ import {
     handleSignOut,
     resetOPConfiguration,
     sendRefreshTokenRequest as sendRefreshTokenRequestUtil,
-    sendRevokeTokenRequest as sendRevokeTokenRequestUtil
+    sendRevokeTokenRequest as sendRevokeTokenRequestUtil,
+    getEndSessionEndpoint,
+    getSessionParameter
 } from "../utils";
 
 export const WebWorker: WebWorkerSingletonInterface = (function (): WebWorkerSingletonInterface {
@@ -93,17 +100,40 @@ export const WebWorker: WebWorkerSingletonInterface = (function (): WebWorkerSin
      *
      * @returns {Promise<SignInResponse>} A promise that resolves with the Sign In response.
      */
-    const signIn = (): Promise<SignInResponse> => {
+    const signIn = (): Promise<SignInResponseWorker> => {
         return handleSignIn(authConfig)
             .then((response) => {
                 if (response.type === SIGNED_IN) {
+                    const logoutEndpoint = getEndSessionEndpoint(authConfig);
+
+                    if (!logoutEndpoint || logoutEndpoint.trim().length === 0) {
+                        return Promise.reject(new Error("No logout endpoint found in the session."));
+                    }
+
+                    const idToken = getSessionParameter(ID_TOKEN, authConfig);
+
+                    if (!idToken || idToken.trim().length === 0) {
+                        return Promise.reject(new Error("Invalid id_token found in the session."));
+                    }
+
+                    const redirectURL = getSessionParameter(SIGN_OUT_REDIRECT_URL, authConfig);
+
+                    if (!redirectURL || redirectURL.trim().length === 0) {
+                        return Promise.reject(new Error("No callback URL found in the session."));
+                    }
+
+                    const logoutCallback =
+                        `${logoutEndpoint}?` + `id_token_hint=${idToken}` + `&post_logout_redirect_uri=${redirectURL}`;
+
                     return Promise.resolve({
                         data: {
                             allowedScopes: session.get(SCOPE),
                             authorizationEndpoint: session.get(AUTHORIZATION_ENDPOINT),
                             displayName: session.get(DISPLAY_NAME),
                             email: session.get(EMAIL),
+                            logoutUrl: logoutCallback,
                             oidcSessionIframe: session.get(OIDC_SESSION_IFRAME_ENDPOINT),
+                            tenantDomain: session.get(TENANT_DOMAIN),
                             username: session.get(USERNAME)
                         },
                         type: response.type
@@ -154,11 +184,13 @@ export const WebWorker: WebWorkerSingletonInterface = (function (): WebWorkerSin
     /**
      * Saves the passed authorization code on the session
      *
-     * @param {string} authCode The authorization code.
+     * @param {string} authCode - The authorization code.
+     * @param {string} sessionState - Session state.
+     * @param {string} pkce - PKCE code.
      */
     const setAuthCode = (authCode: string, sessionState: string, pkce: string): void => {
-        session.set(AUTHORIZATION_CODE, authCode);
-        session.set(SESSION_STATE, sessionState);
+        authCode && session.set(AUTHORIZATION_CODE, authCode);
+        sessionState && session.set(SESSION_STATE, sessionState);
         session.set(PKCE_CODE_VERIFIER, pkce);
     };
 
@@ -210,7 +242,7 @@ export const WebWorker: WebWorkerSingletonInterface = (function (): WebWorkerSin
     /**
      * Makes multiple api calls. Wraps `axios.spread`.
      *
-     * @param {AxiosRequestConfig[]} config API request data.
+     * @param {AxiosRequestConfig[]} configs - API request data.
      *
      * @returns {AxiosResponse[]} A promise that resolves with the response.
      */
@@ -270,7 +302,7 @@ export const WebWorker: WebWorkerSingletonInterface = (function (): WebWorkerSin
 
     const getServiceEndpoints = (): Promise<ServiceResourcesType> => {
         return Promise.resolve(getServiceEndpointsUtil(authConfig));
-    }
+    };
 
     /**
      * @constructor
@@ -279,11 +311,19 @@ export const WebWorker: WebWorkerSingletonInterface = (function (): WebWorkerSin
      *
      * @param {ConfigInterface} config Configuration data.
      *
-     * @returns {OAuthWorkerInterface} Returns the object containing
+     * @returns {WebWorkerInterface} Returns the object containing
      */
     function Constructor(config: WebWorkerClientConfigInterface): WebWorkerInterface {
         authConfig = { ...config };
         authConfig.session = session;
+
+        if (authConfig.authorizationCode) {
+            session.set(AUTHORIZATION_CODE, authConfig.authorizationCode);
+        }
+
+        if (authConfig.sessionState) {
+            session.set(SESSION_STATE, authConfig.sessionState);
+        }
 
         httpClient = AxiosHttpClient.getInstance();
 

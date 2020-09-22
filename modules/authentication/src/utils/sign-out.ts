@@ -18,9 +18,9 @@
 
 import { getEndSessionEndpoint, resetOPConfiguration } from "./op-config";
 import { endAuthenticatedSession, getSessionParameter } from "./session-storage";
-import { CALLBACK_URL, ID_TOKEN } from "../constants";
+import { ID_TOKEN, SIGN_OUT_REDIRECT_URL } from "../constants";
 import { Storage } from "../constants/storage";
-import { ConfigInterface } from "../models";
+import { ConfigInterface, WebWorkerConfigInterface, isWebWorkerConfig } from "../models";
 
 /**
  * Execute user sign out request
@@ -30,7 +30,7 @@ import { ConfigInterface } from "../models";
  * @returns {Promise<any>} sign out request status
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export function sendSignOutRequest(requestParams: ConfigInterface): Promise<any> {
+export function sendSignOutRequest(requestParams: ConfigInterface | WebWorkerConfigInterface): Promise<any> {
     const logoutEndpoint = getEndSessionEndpoint(requestParams);
 
     if (!logoutEndpoint || logoutEndpoint.trim().length === 0) {
@@ -43,7 +43,7 @@ export function sendSignOutRequest(requestParams: ConfigInterface): Promise<any>
         return Promise.reject(new Error("Invalid id_token found in the session."));
     }
 
-    const callbackURL = getSessionParameter(CALLBACK_URL, requestParams);
+    const callbackURL = getSessionParameter(SIGN_OUT_REDIRECT_URL, requestParams);
 
     if (!callbackURL || callbackURL.trim().length === 0) {
         return Promise.reject(new Error("No callback URL found in the session."));
@@ -70,13 +70,13 @@ export function sendSignOutRequest(requestParams: ConfigInterface): Promise<any>
  * @returns {Promise<any>} sign out status
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export function handleSignOut(requestParams: ConfigInterface): Promise<any> {
+export function handleSignOut(requestParams: ConfigInterface | WebWorkerConfigInterface): Promise<any> {
     if (
         (requestParams.storage === Storage.SessionStorage && sessionStorage.length === 0) ||
         (requestParams.storage === Storage.LocalStorage && localStorage.length === 0)
     ) {
         return Promise.reject(new Error("No login sessions."));
-    } else if (requestParams?.session?.size === 0) {
+    } else if (isWebWorkerConfig(requestParams) && requestParams?.session?.size === 0) {
         return Promise.reject(new Error("No login sessions."));
     } else {
         return sendSignOutRequest(requestParams);

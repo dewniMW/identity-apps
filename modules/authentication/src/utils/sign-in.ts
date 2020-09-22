@@ -17,7 +17,7 @@
  */
 
 import axios, { AxiosRequestConfig, AxiosResponse } from "axios";
-import { getCodeChallenge, getCodeVerifier, getEmailHash, getJWKForTheIdToken, isValidIdToken } from "./crypto";
+import { getCodeChallenge, getCodeVerifier, getJWKForTheIdToken, isValidIdToken } from "./crypto";
 import {
     getAuthorizeEndpoint,
     getIssuer,
@@ -35,6 +35,7 @@ import {
     removeSessionParameter,
     setSessionParameter
 } from "./session-storage";
+import { getTenantDomainFromIdTokenPayload } from "./token";
 import {
     ACCESS_TOKEN,
     AUTHORIZATION_CODE,
@@ -51,24 +52,32 @@ import {
     SERVICE_RESOURCES,
     SESSION_STATE,
     SIGNED_IN,
+    Storage,
+    TENANT_DOMAIN,
     TOKEN_ENDPOINT,
     TOKEN_TAG,
     USERNAME,
     USERNAME_TAG
 } from "../constants";
-import { Storage } from "../constants/storage";
-import { CustomGrantRequestParams, SignInResponse, UserInfo } from "../models";
-import { AuthenticatedUserInterface } from "../models/authenticated-user";
-import { ConfigInterface } from "../models/client";
-import { AccountSwitchRequestParams } from "../models/oidc-request-params";
-import { TokenRequestHeader, TokenResponseInterface } from "../models/token-response";
+import {
+    AuthenticatedUserInterface,
+    ConfigInterface,
+    CustomGrantRequestParams,
+    DecodedIdTokenPayloadInterface,
+    SignInResponse,
+    TokenRequestHeader,
+    TokenResponseInterface,
+    UserInfo,
+    WebWorkerConfigInterface,
+    isWebWorkerConfig
+} from "../models";
 
 /**
  * Checks whether authorization code is present.
  *
  * @returns {boolean} true if authorization code is present.
  */
-export function hasAuthorizationCode(requestParams: ConfigInterface): boolean {
+export function hasAuthorizationCode(requestParams: ConfigInterface | WebWorkerConfigInterface): boolean {
     return !!getAuthorizationCode(requestParams);
 }
 
@@ -80,14 +89,10 @@ export function hasAuthorizationCode(requestParams: ConfigInterface): boolean {
  *
  * @returns {string} Resolved authorization code.
  */
-export function getAuthorizationCode(requestParams?: ConfigInterface): string {
-    if (!requestParams || requestParams.storage !== Storage.WebWorker) {
+export function getAuthorizationCode(requestParams?: ConfigInterface | WebWorkerConfigInterface): string {
+    if (!requestParams || !isWebWorkerConfig(requestParams)) {
         if (new URL(window.location.href).searchParams.get(AUTHORIZATION_CODE)) {
             return new URL(window.location.href).searchParams.get(AUTHORIZATION_CODE);
-        }
-
-        if (window.sessionStorage.getItem(AUTHORIZATION_CODE)) {
-            return window.sessionStorage.getItem(AUTHORIZATION_CODE);
         }
     } else {
         if (requestParams.session.get(AUTHORIZATION_CODE)) {
@@ -102,7 +107,7 @@ export function getAuthorizationCode(requestParams?: ConfigInterface): string {
  * Get token request headers.
  *
  * @param {string} clientHost
- * @returns {{headers: {Accept: string; "Access-Control-Allow-Origin": string; "Content-Type": string}}}
+ * @returns {TokenRequestHeader}
  */
 export const getTokenRequestHeaders = (clientHost: string): TokenRequestHeader => {
     return {
@@ -115,9 +120,12 @@ export const getTokenRequestHeaders = (clientHost: string): TokenRequestHeader =
 /**
  * Send authorization request.
  *
- * @param {ConfigInterface} requestParams request parameters required for authorization request.
+ * @param {ConfigInterface | WebWorkerConfigInterface} requestParams
+ * request parameters required for authorization request.
  */
-export function sendAuthorizationRequest(requestParams: ConfigInterface): Promise<SignInResponse | never> {
+export function sendAuthorizationRequest(
+    requestParams: ConfigInterface | WebWorkerConfigInterface
+): Promise<SignInResponse | never> {
     const authorizeEndpoint = getAuthorizeEndpoint(requestParams);
 
     if (!authorizeEndpoint || authorizeEndpoint.trim().length === 0) {
@@ -136,7 +144,7 @@ export function sendAuthorizationRequest(requestParams: ConfigInterface): Promis
     }
 
     authorizeRequest += "&scope=" + scope;
-    authorizeRequest += "&redirect_uri=" + requestParams.callbackURL;
+    authorizeRequest += "&redirect_uri=" + requestParams.signInRedirectURL;
 
     if (requestParams.responseMode) {
         authorizeRequest += "&response_mode=" + requestParams.responseMode;
@@ -174,7 +182,10 @@ export function sendAuthorizationRequest(requestParams: ConfigInterface): Promis
  * @returns {Promise<boolean>} whether token is valid.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export function validateIdToken(idToken: string, requestParams: ConfigInterface): Promise<any> {
+export function validateIdToken(
+    idToken: string,
+    requestParams: ConfigInterface | WebWorkerConfigInterface
+): Promise<any> {
     const jwksEndpoint = getJwksUri(requestParams);
 
     if (!jwksEndpoint || jwksEndpoint.trim().length === 0) {
@@ -188,7 +199,7 @@ export function validateIdToken(idToken: string, requestParams: ConfigInterface)
                 return Promise.reject(new Error("Failed to load public keys from JWKS URI: " + jwksEndpoint));
             }
 
-            const jwk = getJWKForTheIdToken(idToken.split(".")[ 0 ], response.data.keys);
+            const jwk = getJWKForTheIdToken(idToken.split(".")[0], response.data.keys);
 
             let issuer = getIssuer(requestParams);
 
@@ -208,10 +219,12 @@ export function validateIdToken(idToken: string, requestParams: ConfigInterface)
 /**
  * Send token request.
  *
- * @param {ConfigInterface} requestParams request parameters required for token request.
+ * @param {ConfigInterface | WebWorkerConfigInterface} requestParams request parameters required for token request.
  * @returns {Promise<TokenResponseInterface>} token response data or error.
  */
-export function sendTokenRequest(requestParams: ConfigInterface): Promise<TokenResponseInterface> {
+export function sendTokenRequest(
+    requestParams: ConfigInterface | WebWorkerConfigInterface | WebWorkerConfigInterface | WebWorkerConfigInterface
+): Promise<TokenResponseInterface> {
     const tokenEndpoint = getTokenEndpoint(requestParams);
 
     if (!tokenEndpoint || tokenEndpoint.trim().length === 0) {
@@ -219,40 +232,38 @@ export function sendTokenRequest(requestParams: ConfigInterface): Promise<TokenR
     }
 
     // Extract session state and set to the sessionStorage
-    const sessionState =
-        requestParams.storage === Storage.WebWorker
-            ? requestParams.session.get(SESSION_STATE)
-            : new URL(window.location.href).searchParams.get(SESSION_STATE);
+    const sessionState = isWebWorkerConfig(requestParams)
+        ? requestParams.session.get(SESSION_STATE)
+        : new URL(window.location.href).searchParams.get(SESSION_STATE);
     if (sessionState !== null && sessionState.length > 0) {
         setSessionParameter(SESSION_STATE, sessionState, requestParams);
     }
 
     const body = [];
-    body.push(`client_id=${ requestParams.clientID }`);
+    body.push(`client_id=${requestParams.clientID}`);
 
     if (requestParams.clientSecret && requestParams.clientSecret.trim().length > 0) {
-        body.push(`client_secret=${ requestParams.clientSecret }`);
+        body.push(`client_secret=${requestParams.clientSecret}`);
     }
 
-    const code =
-        requestParams.storage === Storage.WebWorker
-            ? requestParams.session.get(AUTHORIZATION_CODE)
-            : getAuthorizationCode(requestParams);
-    body.push(`code=${ code }`);
+    const code = isWebWorkerConfig(requestParams)
+        ? requestParams.session.get(AUTHORIZATION_CODE)
+        : getAuthorizationCode(requestParams);
+    body.push(`code=${code}`);
 
     if (requestParams.storage === Storage.SessionStorage && window.sessionStorage.getItem(AUTHORIZATION_CODE)) {
         window.sessionStorage.removeItem(AUTHORIZATION_CODE);
     }
 
-    if (requestParams.storage === Storage.WebWorker && requestParams.session.get(AUTHORIZATION_CODE)) {
+    if (isWebWorkerConfig(requestParams) && requestParams.session.get(AUTHORIZATION_CODE)) {
         requestParams.session.delete(AUTHORIZATION_CODE);
     }
 
     body.push("grant_type=authorization_code");
-    body.push(`redirect_uri=${ requestParams.callbackURL }`);
+    body.push(`redirect_uri=${requestParams.signInRedirectURL}`);
 
     if (requestParams.enablePKCE) {
-        body.push(`code_verifier=${ getSessionParameter(PKCE_CODE_VERIFIER, requestParams) }`);
+        body.push(`code_verifier=${getSessionParameter(PKCE_CODE_VERIFIER, requestParams)}`);
         removeSessionParameter(PKCE_CODE_VERIFIER, requestParams);
     }
 
@@ -264,24 +275,30 @@ export function sendTokenRequest(requestParams: ConfigInterface): Promise<TokenR
                     new Error("Invalid status code received in the token response: " + response.status)
                 );
             }
-            return validateIdToken(response.data.id_token, requestParams).then((valid) => {
-                if (valid) {
-                    setSessionParameter(REQUEST_PARAMS, JSON.stringify(requestParams), requestParams);
+            return validateIdToken(response.data.id_token, requestParams)
+                .then((valid) => {
+                    if (valid) {
+                        setSessionParameter(REQUEST_PARAMS, JSON.stringify(requestParams), requestParams);
 
-                    const tokenResponse: TokenResponseInterface = {
-                        accessToken: response.data.access_token,
-                        expiresIn: response.data.expires_in,
-                        idToken: response.data.id_token,
-                        refreshToken: response.data.refresh_token,
-                        scope: response.data.scope,
-                        tokenType: response.data.token_type
-                    };
+                        const tokenResponse: TokenResponseInterface = {
+                            accessToken: response.data.access_token,
+                            expiresIn: response.data.expires_in,
+                            idToken: response.data.id_token,
+                            refreshToken: response.data.refresh_token,
+                            scope: response.data.scope,
+                            tokenType: response.data.token_type
+                        };
 
-                    return Promise.resolve(tokenResponse);
-                }
+                        return Promise.resolve(tokenResponse);
+                    }
 
-                return Promise.reject(new Error("Invalid id_token in the token response: " + response.data.id_token));
-            });
+                    return Promise.reject(
+                        new Error("Invalid id_token in the token response: " + response.data.id_token)
+                    );
+                })
+                .catch((error) => {
+                    return Promise.reject(error);
+                });
         })
         .catch((error) => {
             return Promise.reject(error);
@@ -291,11 +308,14 @@ export function sendTokenRequest(requestParams: ConfigInterface): Promise<TokenR
 /**
  * Send refresh token request.
  *
- * @param {ConfigInterface} requestParams request parameters required for token request.
+ * @param {ConfigInterface | WebWorkerConfigInterface} requestParams request parameters required for token request.
  * @param {string} refreshToken
  * @returns {Promise<TokenResponseInterface>} refresh token response data or error.
  */
-export function sendRefreshTokenRequest(requestParams: ConfigInterface, refreshToken: string): Promise<any> {
+export function sendRefreshTokenRequest(
+    requestParams: ConfigInterface | WebWorkerConfigInterface,
+    refreshToken: string
+): Promise<any> {
     const tokenEndpoint = getTokenEndpoint(requestParams);
 
     if (!tokenEndpoint || tokenEndpoint.trim().length === 0) {
@@ -303,8 +323,8 @@ export function sendRefreshTokenRequest(requestParams: ConfigInterface, refreshT
     }
 
     const body = [];
-    body.push(`client_id=${ requestParams.clientID }`);
-    body.push(`refresh_token=${ refreshToken }`);
+    body.push(`client_id=${requestParams.clientID}`);
+    body.push(`refresh_token=${refreshToken}`);
     body.push("grant_type=refresh_token");
 
     return axios
@@ -330,6 +350,7 @@ export function sendRefreshTokenRequest(requestParams: ConfigInterface, refreshT
 
                     return Promise.resolve(tokenResponse);
                 }
+
                 return Promise.reject(new Error("Invalid id_token in the token response: " + response.data.id_token));
             });
         })
@@ -341,12 +362,16 @@ export function sendRefreshTokenRequest(requestParams: ConfigInterface, refreshT
 /**
  * Send revoke token request.
  *
- * @param {ConfigInterface} requestParams request parameters required for revoke token request.
+ * @param {ConfigInterface | WebWorkerConfigInterface} requestParams
+ * request parameters required for revoke token request.
  * @param {string} accessToken access token
  * @returns {any}
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export function sendRevokeTokenRequest(requestParams: ConfigInterface, accessToken: string): Promise<any> {
+export function sendRevokeTokenRequest(
+    requestParams: ConfigInterface | WebWorkerConfigInterface,
+    accessToken: string
+): Promise<any> {
     const revokeTokenEndpoint = getRevokeTokenEndpoint(requestParams);
 
     if (!revokeTokenEndpoint || revokeTokenEndpoint.trim().length === 0) {
@@ -354,8 +379,8 @@ export function sendRevokeTokenRequest(requestParams: ConfigInterface, accessTok
     }
 
     const body = [];
-    body.push(`client_id=${ requestParams.clientID }`);
-    body.push(`token=${ accessToken }`);
+    body.push(`client_id=${requestParams.clientID}`);
+    body.push(`token=${accessToken}`);
     body.push("token_type_hint=access_token");
 
     return axios
@@ -378,96 +403,23 @@ export function sendRevokeTokenRequest(requestParams: ConfigInterface, accessTok
 }
 
 /**
- * Get user image from gravatar.com.
- *
- * @param emailAddress email address received authenticated user.
- * @returns {string} gravatar image path.
- */
-export const getGravatar = (emailAddress: string): string => {
-    return "https://www.gravatar.com/avatar/" + getEmailHash(emailAddress) + "?d=404";
-};
-
-/**
  * Get authenticated user from the id_token.
  *
  * @param idToken id_token received from the IdP.
  * @returns {AuthenticatedUserInterface} authenticated user.
  */
 export const getAuthenticatedUser = (idToken: string): AuthenticatedUserInterface => {
-    const payload = JSON.parse(atob(idToken.split(".")[ 1 ]));
-    const emailAddress = payload.email ? payload.email : null;
+    const payload: DecodedIdTokenPayloadInterface = JSON.parse(atob(idToken.split(".")[1]));
+    const emailAddress: string = payload.email ? payload.email : null;
+    const tenantDomain: string = getTenantDomainFromIdTokenPayload(payload);
 
     return {
         displayName: payload.preferred_username ? payload.preferred_username : payload.sub,
         email: emailAddress,
+        tenantDomain,
         username: payload.sub
     };
 };
-
-/**
- * Send account switch request.
- *
- * @param {AccountSwitchRequestParams} requestParams request parameters required for the account switch request.
- * @param {string} clientHost client host.
- * @returns {Promise<TokenResponseInterface>} token response data or error.
- */
-export function sendAccountSwitchRequest(
-    requestParams: AccountSwitchRequestParams,
-    config: ConfigInterface
-): Promise<any> {
-    const tokenEndpoint = getTokenEndpoint(config);
-
-    if (!tokenEndpoint || tokenEndpoint.trim().length === 0) {
-        return Promise.reject(new Error("Invalid token endpoint found."));
-    }
-
-    let scope = OIDC_SCOPE;
-
-    if (requestParams.scope && requestParams.scope.length > 0) {
-        if (!requestParams.scope.includes(OIDC_SCOPE)) {
-            requestParams.scope.push(OIDC_SCOPE);
-        }
-        scope = requestParams.scope.join(" ");
-    }
-
-    const body = [];
-    body.push("grant_type=account_switch");
-    body.push(`username=${ requestParams.username }`);
-    body.push(`userstore-domain=${ requestParams[ "userstore-domain" ] }`);
-    body.push(`tenant-domain=${ requestParams[ "tenant-domain" ] }`);
-    body.push(`token=${ getSessionParameter(ACCESS_TOKEN, config) }`);
-    body.push(`scope=${ scope }`);
-    body.push(`client_id=${ requestParams.client_id }`);
-
-    return axios
-        .post(tokenEndpoint, body.join("&"), { headers: getTokenRequestHeaders(requestParams.clientHost) })
-        .then((response) => {
-            if (response.status !== 200) {
-                return Promise.reject(
-                    new Error("Invalid status code received in the token response: " + response.status)
-                );
-            }
-
-            return validateIdToken(response.data.id_token, config).then((valid) => {
-                if (valid) {
-                    const tokenResponse: TokenResponseInterface = {
-                        accessToken: response.data.access_token,
-                        expiresIn: response.data.expires_in,
-                        idToken: response.data.id_token,
-                        refreshToken: response.data.refresh_token,
-                        scope: response.data.scope,
-                        tokenType: response.data.token_type
-                    };
-                    return Promise.resolve(tokenResponse);
-                }
-
-                return Promise.reject(new Error("Invalid id_token in the token response: " + response.data.id_token));
-            });
-        })
-        .catch((error) => {
-            return Promise.reject(error);
-        });
-}
 
 /**
  * Execute user sign in request
@@ -477,7 +429,7 @@ export function sendAccountSwitchRequest(
  * @returns {Promise<any>} sign out request status
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export function sendSignInRequest(requestParams: ConfigInterface): Promise<SignInResponse> {
+export function sendSignInRequest(requestParams: ConfigInterface | WebWorkerConfigInterface): Promise<SignInResponse> {
     if (hasAuthorizationCode(requestParams)) {
         return sendTokenRequest(requestParams)
             .then((response) => {
@@ -498,7 +450,7 @@ export function sendSignInRequest(requestParams: ConfigInterface): Promise<SignI
     }
 }
 
-export function handleSignIn(requestParams: ConfigInterface): Promise<any> {
+export function handleSignIn(requestParams: ConfigInterface | WebWorkerConfigInterface): Promise<any> {
     if (getSessionParameter(ACCESS_TOKEN, requestParams)) {
         if (!isValidOPConfig(requestParams)) {
             endAuthenticatedSession(requestParams);
@@ -530,11 +482,14 @@ export function handleSignIn(requestParams: ConfigInterface): Promise<any> {
  * Replaces template tags with actual values.
  *
  * @param {string} text Input string.
- * @param {string} scope Scope.
+ * @param {ConfigInterface | WebWorkerConfigInterface} authConfig - Auth config object.
  *
- * @returns String with template tags replaced with actual values.
+ * @return {string} String with template tags replaced with actual values.
  */
-const replaceTemplateTags = (text: string, authConfig: ConfigInterface): string => {
+const replaceTemplateTags = (
+    text: string,
+    authConfig: ConfigInterface | WebWorkerConfigInterface | WebWorkerConfigInterface | WebWorkerConfigInterface
+): string => {
     let scope = OIDC_SCOPE;
 
     if (authConfig.scope && authConfig.scope.length > 0) {
@@ -545,8 +500,8 @@ const replaceTemplateTags = (text: string, authConfig: ConfigInterface): string 
     }
 
     return text
-        .replace(TOKEN_TAG, authConfig.session.get(ACCESS_TOKEN))
-        .replace(USERNAME_TAG, authConfig.session.get(USERNAME))
+        .replace(TOKEN_TAG, getSessionParameter(ACCESS_TOKEN, authConfig))
+        .replace(USERNAME_TAG, getSessionParameter(USERNAME, authConfig))
         .replace(SCOPE_TAG, scope)
         .replace(CLIENT_ID_TAG, authConfig.clientID)
         .replace(CLIENT_SECRET_TAG, authConfig.clientSecret);
@@ -555,24 +510,27 @@ const replaceTemplateTags = (text: string, authConfig: ConfigInterface): string 
 /**
  * Allows using custom grant types.
  *
- * @param {CustomGrantRequestParams} requestParams The request parameters.
- *
+ * @param {CustomGrantRequestParams} requestParams - The request parameters.
+ * @param {ConfigInterface | WebWorkerConfigInterface} authConfig - Auth config object.
  * @returns {Promise<boolean|AxiosResponse>} A promise that resolves with a boolean value or the request response
  * if the the `returnResponse` attribute in the `requestParams` object is set to `true`.
  */
 export const customGrant = (
     requestParams: CustomGrantRequestParams,
-    authConfig: ConfigInterface
+    authConfig: ConfigInterface | WebWorkerConfigInterface | WebWorkerConfigInterface | WebWorkerConfigInterface
 ): Promise<SignInResponse | boolean | AxiosResponse> => {
-    if (!authConfig.session.get(TOKEN_ENDPOINT) || authConfig.session.get(TOKEN_ENDPOINT).trim().length === 0) {
+    if (
+        !getSessionParameter(TOKEN_ENDPOINT, authConfig) ||
+        getSessionParameter(TOKEN_ENDPOINT, authConfig).trim().length === 0
+    ) {
         return Promise.reject(new Error("Invalid token endpoint found."));
     }
 
     let data: string = "";
 
-    Object.entries(requestParams.data).map(([ key, value ], index: number) => {
+    Object.entries(requestParams.data).map(([key, value], index: number) => {
         const newValue = replaceTemplateTags(value as string, authConfig);
-        data += `${ key }=${ newValue }${ index !== Object.entries(requestParams.data).length - 1 ? "&" : "" }`;
+        data += `${key}=${newValue}${index !== Object.entries(requestParams.data).length - 1 ? "&" : ""}`;
     });
 
     const requestConfig: AxiosRequestConfig = {
@@ -581,13 +539,13 @@ export const customGrant = (
             ...getTokenRequestHeaders(authConfig.clientHost)
         },
         method: "POST",
-        url: authConfig.session.get(TOKEN_ENDPOINT)
+        url: getSessionParameter(TOKEN_ENDPOINT, authConfig)
     };
 
     if (requestParams.attachToken) {
         requestConfig.headers = {
             ...requestConfig.headers,
-            Authorization: `Bearer ${ authConfig.session.get(ACCESS_TOKEN) }`
+            Authorization: `Bearer ${getSessionParameter(ACCESS_TOKEN, authConfig)}`
         };
     }
 
@@ -643,11 +601,12 @@ export const customGrant = (
  *
  * @returns {UserInfo} User information.
  */
-export const getUserInfo = (config: ConfigInterface): UserInfo => {
+export const getUserInfo = (config: ConfigInterface | WebWorkerConfigInterface): UserInfo => {
     return {
         allowedScopes: getSessionParameter(SCOPE, config),
         displayName: getSessionParameter(DISPLAY_NAME, config),
         email: getSessionParameter(EMAIL, config),
+        tenantDomain: getSessionParameter(TENANT_DOMAIN, config),
         username: getSessionParameter(USERNAME, config)
     };
 };

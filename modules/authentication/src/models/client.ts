@@ -22,12 +22,10 @@ import { ResponseModeTypes } from "./oidc-request-params";
 import { SessionData } from "./web-worker-client";
 import { Storage } from "../constants";
 
-/**
- * SDK Client config parameters.
- */
-export interface ConfigInterface {
+interface BaseConfigInterface {
     authorizationType?: string;
-    callbackURL: string;
+    signInRedirectURL: string;
+    signOutRedirectURL: string;
     clientHost: string;
     clientID: string;
     clientSecret?: string;
@@ -37,13 +35,21 @@ export interface ConfigInterface {
     responseMode?: ResponseModeTypes;
     scope?: string[];
     serverOrigin: string;
-    storage?: Storage;
-    session?: SessionData;
     endpoints?: ServiceResourcesType;
+    authorizationCode?: string;
+    sessionState?: string;
+}
+/**
+ * SDK Client config parameters.
+ */
+export interface ConfigInterface extends BaseConfigInterface{
+    storage?: Storage.SessionStorage | Storage.LocalStorage;
 }
 
-export interface WebWorkerConfigInterface extends ConfigInterface {
+export interface WebWorkerConfigInterface extends BaseConfigInterface {
     baseUrls: string[];
+    session?: SessionData;
+    storage: Storage.WebWorker;
 }
 
 export interface HttpClient {
@@ -57,3 +63,9 @@ export interface HttpClient {
 export interface WebWorkerClientConfigInterface extends WebWorkerConfigInterface {
     httpClient: HttpClient;
 }
+
+export const isWebWorkerConfig = (
+    config: ConfigInterface | WebWorkerConfigInterface
+): config is WebWorkerConfigInterface => {
+    return config.storage === Storage.WebWorker;
+};

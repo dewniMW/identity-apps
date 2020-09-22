@@ -16,10 +16,12 @@
  * under the License.
  */
 
-import { IdentityClient, SignInUtil } from "@wso2is/authentication";
+import { IdentityClient } from "@wso2is/authentication";
+import { CommonUtils } from "@wso2is/core/utils";
 import axios from "axios";
 import _ from "lodash";
-import { ApplicationConstants, SCIM2_ENT_USER_SCHEMA } from "../constants";
+import { Config } from "../configs";
+import { AppConstants, SCIM2_ENT_USER_SCHEMA } from "../constants";
 import { history } from "../helpers";
 import { BasicProfileInterface, HttpMethods, ProfileSchema, ReadOnlyUserStatus } from "../models";
 import { store } from "../store";
@@ -72,7 +74,7 @@ export const getUserReadOnlyStatus = (): Promise<ReadOnlyUserStatus> => {
             "Content-Type": "application/json"
         },
         method: HttpMethods.GET,
-        url: store.getState().config.endpoints.isReadOnlyUser
+        url: Config.getServiceResourceEndpoints().isReadOnlyUser
     };
 
     return httpClient(requestConfig)
@@ -98,7 +100,7 @@ export const getGravatarImage = (email: string): Promise<string> => {
     if (_.isEmpty(email)) {
         return Promise.reject("Email is null");
     } else {
-        const url: string = SignInUtil.getGravatar(email);
+        const url: string = CommonUtils.getGravatar(email);
         return new Promise((resolve, reject) => {
             axios
                 .get(url)
@@ -149,7 +151,7 @@ export const getProfileInfo = (): Promise<BasicProfileInterface> => {
                 responseStatus: response.status || null,
                 roles: response.data.roles || [],
                 // TODO: Validate if necessary.
-                userImage: response.data.userImage || response.data.profileUrl,
+                userImage: response.data.userImage || response.data.profileUrl || "",
                 ...response.data,
                 userName: response.data.userName || ""
             };
@@ -168,7 +170,7 @@ export const getProfileInfo = (): Promise<BasicProfileInterface> => {
                 store.dispatch(toggleSCIMEnabled(false));
 
                 // Navigate to login error page.
-                history.push(ApplicationConstants.LOGIN_ERROR_PAGE_PATH);
+                history.push(AppConstants.getPaths().get("LOGIN_ERROR"));
             }
 
             return Promise.reject(error);

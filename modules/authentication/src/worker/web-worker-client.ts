@@ -36,11 +36,11 @@ import {
     REQUEST_SUCCESS,
     SESSION_STATE,
     SIGNED_IN,
-    SIGN_IN
+    SIGN_IN,
+    LOGOUT_URL
 } from "../constants";
 import {
     AuthCode,
-    ConfigInterface,
     CustomGrantRequestParams,
     HttpClient,
     Message,
@@ -50,7 +50,8 @@ import {
     UserInfo,
     WebWorkerClientInterface,
     WebWorkerConfigInterface,
-    WebWorkerSingletonClientInterface
+    WebWorkerSingletonClientInterface,
+    SignInResponseWorker
 } from "../models";
 import { getAuthorizationCode } from "../utils";
 
@@ -246,9 +247,9 @@ export const WebWorkerClient: WebWorkerSingletonClientInterface = (function(): W
      * Send multiple API requests to the web worker and returns the response.
      * Similar `axios.spread` in functionality.
      *
-     * @param {AxiosRequestConfig[]} config The Axios Request Config object
+     * @param {AxiosRequestConfig[]} configs - The Axios Request Config object
      *
-     * @returns {Promise<AxiosResponse>[]} A promise that resolves with the response data.
+     * @returns {Promise<AxiosResponse<T>[]>} A promise that resolves with the response data.
      */
     const httpRequestAll = <T = any>(configs: AxiosRequestConfig[]): Promise<AxiosResponse<T>[]> => {
         if (!initialized) {
@@ -313,8 +314,12 @@ export const WebWorkerClient: WebWorkerSingletonClientInterface = (function(): W
             return Promise.reject("Array elements of baseUrls must all be string values");
         }
 
-        if (typeof config.callbackURL !== "string") {
-            return Promise.reject("The callbackURL must be a string");
+        if (typeof config.signInRedirectURL !== "string") {
+            return Promise.reject("The sign-in redirect URL must be a string");
+        }
+
+        if (typeof config.signOutRedirectURL !== "string") {
+            return Promise.reject("The sign-out redirect URL must be a string");
         }
 
         if (typeof config.clientHost !== "string") {
@@ -388,12 +393,12 @@ export const WebWorkerClient: WebWorkerSingletonClientInterface = (function(): W
             }
         };
 
-        const message: Message<ConfigInterface> = {
+        const message: Message<WebWorkerConfigInterface> = {
             data: config,
             type: INIT
         };
 
-        return communicate<ConfigInterface, null>(message)
+        return communicate<WebWorkerConfigInterface, null>(message)
             .then(() => {
                 initialized = true;
 
@@ -428,11 +433,16 @@ export const WebWorkerClient: WebWorkerSingletonClientInterface = (function(): W
         sessionStorage.removeItem(PKCE_CODE_VERIFIER);
         sessionStorage.removeItem(AUTHORIZATION_CODE);
 
-        return communicate<AuthCode, SignInResponse>(message)
+        return communicate<AuthCode, SignInResponseWorker>(message)
             .then((response) => {
                 if (response.type === SIGNED_IN) {
                     signedIn = true;
-                    return Promise.resolve(response.data);
+
+                    sessionStorage.setItem(LOGOUT_URL, response.data.logoutUrl);
+
+                    const data = response.data;
+                    delete data.logoutUrl;
+                    return Promise.resolve(data);
                 }
 
                 return Promise.reject(
@@ -446,32 +456,13 @@ export const WebWorkerClient: WebWorkerSingletonClientInterface = (function(): W
     };
 
     /**
-     * Listens for the authorization code in the callback URL.
-     * If present, this will continue with the authentication flow and resolve if successfully authenticated.
-     * @returns {Promise<UserInfo>} Promise that resolves on successful authentication.
-     */
-    const listenForAuthCode = (): Promise<UserInfo> => {
-        if (!initialized) {
-            return Promise.reject(
-                "Error while listening to authorization code. The object has not been initialized yet."
-            );
-        }
-
-        if (hasAuthorizationCode()) {
-            return sendAuthorizationCode();
-        } else {
-            return Promise.reject("No Authorization Code found.");
-        }
-    };
-
-    /**
      * Initiates the authentication flow.
      *
      * @returns {Promise<UserInfo>} A promise that resolves when authentication is successful.
      */
     const signIn = (): Promise<UserInfo> => {
         if (initialized) {
-            if (hasAuthorizationCode()) {
+            if (hasAuthorizationCode() || sessionStorage.getItem(PKCE_CODE_VERIFIER)) {
                 return sendAuthorizationCode();
             } else {
                 const message: Message<null> = {
@@ -479,12 +470,16 @@ export const WebWorkerClient: WebWorkerSingletonClientInterface = (function(): W
                     type: SIGN_IN
                 };
 
-                return communicate<null, SignInResponse>(message)
+                return communicate<null, SignInResponseWorker>(message)
                     .then((response) => {
                         if (response.type === SIGNED_IN) {
                             signedIn = true;
 
-                            return Promise.resolve(response.data);
+                            sessionStorage.setItem(LOGOUT_URL, response.data.logoutUrl);
+
+                            const data = response.data;
+                            delete data.logoutUrl;
+                            return Promise.resolve(data);
                         } else if (response.type === AUTH_REQUIRED && response.code) {
                             if (response.pkce) {
                                 sessionStorage.setItem(PKCE_CODE_VERIFIER, response.pkce);
@@ -492,9 +487,27 @@ export const WebWorkerClient: WebWorkerSingletonClientInterface = (function(): W
 
                             location.href = response.code;
 
-                            return Promise.reject("Redirecting to get authorization code...");
+                            return Promise.resolve({
+                                allowedScopes: "",
+                                displayName: "",
+                                email: "",
+                                tenantDomain: "",
+                                username: ""
+                            });
                         } else {
-                            return Promise.reject("Something went wrong during authentication");
+                            if (response.type === AUTH_REQUIRED && !response.code) {
+                                return Promise.reject(
+                                    "Something went wrong during authentication." +
+                                        " No authorization url was received." +
+                                        JSON.stringify(response)
+                                );
+                            } else {
+                                return Promise.reject(
+                                    "Something went wrong during authentication." +
+                                        "Unknown response received. " +
+                                        JSON.stringify(response)
+                                );
+                            }
                         }
                     })
                     .catch((error) => {
@@ -513,6 +526,14 @@ export const WebWorkerClient: WebWorkerSingletonClientInterface = (function(): W
      */
     const signOut = (): Promise<boolean> => {
         if (!signedIn) {
+            if (sessionStorage.getItem(LOGOUT_URL)) {
+                const logoutUrl = sessionStorage.getItem(LOGOUT_URL);
+                sessionStorage.removeItem(LOGOUT_URL);
+                window.location.href = logoutUrl;
+
+                return Promise.resolve(true);
+            }
+
             return Promise.reject("You have not signed in yet");
         }
 
@@ -612,7 +633,7 @@ export const WebWorkerClient: WebWorkerSingletonClientInterface = (function(): W
      *
      * This returns the object containing the public methods.
      *
-     * @returns {OAuthInterface} OAuthInterface object
+     * @returns {WebWorkerClientInterface} OAuthInterface object
      */
     function Constructor(): WebWorkerClientInterface {
         worker = new WorkerFile();
@@ -625,7 +646,6 @@ export const WebWorkerClient: WebWorkerSingletonClientInterface = (function(): W
             httpRequest,
             httpRequestAll,
             initialize,
-            listenForAuthCode,
             onHttpRequestError,
             onHttpRequestFinish,
             onHttpRequestStart,

@@ -16,9 +16,8 @@
  * under the License.
  */
 
-import { IdentityClient, SignInResponse } from "@wso2is/authentication";
+import { IdentityClient } from "@wso2is/authentication";
 import axios, { AxiosError, AxiosResponse } from "axios";
-import _ from "lodash";
 import { CommonServiceResourcesEndpoints } from "../configs";
 import { ProfileConstants } from "../constants";
 import { IdentityAppsApiException } from "../exceptions";
@@ -26,10 +25,8 @@ import { HTTPRequestHeaders } from "../helpers";
 import {
     AcceptHeaderValues,
     ContentTypeHeaderValues,
-    GravatarConfig,
     GravatarFallbackTypes,
     HttpMethods,
-    LinkedAccountInterface,
     ProfileInfoInterface,
     ProfileSchemaInterface
 } from "../models";
@@ -83,19 +80,23 @@ export const getGravatarImage = (email: string,
 /**
  * Retrieve the user profile details of the currently authenticated user.
  *
+ * @param {string} endpoint - Me endpoint absolute path.
+ * @param {string} clientOrigin - Tenant qualified client origin.
  * @param {() => void} onSCIMDisabled - Callback to be fired if SCIM is disabled for the user store.
  * @returns {Promise<ProfileInfoInterface>} Profile information as a Promise.
  * @throws {IdentityAppsApiException}
  */
-export const getProfileInfo = (onSCIMDisabled: () => void): Promise<ProfileInfoInterface> => {
+export const getProfileInfo = (endpoint: string,
+                               clientOrigin: string,
+                               onSCIMDisabled?: () => void): Promise<ProfileInfoInterface> => {
 
     const orgKey = "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User";
 
     const requestConfig = {
-        headers: HTTPRequestHeaders(ContextUtils.getRuntimeConfig().clientHost, AcceptHeaderValues.APP_JSON,
+        headers: HTTPRequestHeaders(clientOrigin, AcceptHeaderValues.APP_JSON,
             ContentTypeHeaderValues.APP_SCIM),
         method: HttpMethods.GET,
-        url: CommonServiceResourcesEndpoints(ContextUtils.getRuntimeConfig().serverHost).me
+        url: endpoint
     };
 
     return httpClient(requestConfig)
@@ -137,7 +138,7 @@ export const getProfileInfo = (onSCIMDisabled: () => void): Promise<ProfileInfoI
 
                 // Fire `onSCIMDisabled` callback which will navigate the
                 // user to the corresponding error page.
-                onSCIMDisabled();
+                onSCIMDisabled && onSCIMDisabled();
             }
 
             throw new IdentityAppsApiException(
@@ -250,48 +251,5 @@ export const getProfileSchemas = (): Promise<ProfileSchemaInterface[]> => {
                 error.request,
                 error.response,
                 error.config);
-        });
-};
-
-/**
- * Switches the logged in user's account to one of the linked accounts
- * associated to the corresponding user.
- *
- * @param {LinkedAccountInterface} account - The target account.
- * @param {string[]} scopes - Required scopes array.
- * @param {string} clientID - Client ID.
- * @param {string} clientHost - Client Host URL.
- * @return {Promise<any>}
- * @throws {IdentityAppsApiException}
- */
-export const switchAccount = (account: LinkedAccountInterface): Promise<any> => {
-    return auth
-        .customGrant({
-            attachToken: false,
-            data: {
-                clientId: "{{clientId}}",
-                grantType: "account_switch",
-                scope: "{{scope}}",
-                "tenant-domain": account.tenantDomain,
-                token: "{{token}}",
-                username: account.username,
-                "userstore-domain": account.userStoreDomain
-            },
-            returnResponse: true,
-            returnsSession: true,
-            signInRequired: true
-        })
-        .then((response: SignInResponse) => {
-            return Promise.resolve(response?.data);
-        })
-        .catch((error: AxiosError) => {
-            throw new IdentityAppsApiException(
-                ProfileConstants.ACCOUNT_SWITCH_REQUEST_ERROR,
-                error.stack,
-                error.code,
-                error.request,
-                error.response,
-                error.config
-            );
         });
 };

@@ -18,15 +18,22 @@
 
 import {
     AUTHORIZATION_ENDPOINT,
+    AuthenticatedUserInterface,
+    Hooks,
     IdentityClient,
     OIDC_SESSION_IFRAME_ENDPOINT,
+    ResponseModeTypes,
     ServiceResourcesType,
     Storage,
-    TOKEN_ENDPOINT
+    TOKEN_ENDPOINT,
+    UserInfo
 } from "@wso2is/authentication";
 import { TokenConstants } from "@wso2is/core/constants";
+import { AuthenticateUtils, ContextUtils } from "@wso2is/core/utils";
 import { I18n } from "@wso2is/i18n";
+import axios from "axios";
 import _ from "lodash";
+import { UAParser } from "ua-parser-js";
 import { getProfileLinkedAccounts } from ".";
 import { addAlert } from "./global";
 import { setProfileInfoLoader, setProfileSchemaLoader } from "./loaders";
@@ -37,10 +44,9 @@ import {
     getUserReadOnlyStatus,
     switchAccount
 }from "../../api";
-import { history } from "../../helpers";
+import { Config } from "../../configs";
 import {
     AlertLevels,
-    AuthenticatedUserInterface,
     BasicProfileInterface,
     LinkedAccountInterface,
     ProfileSchema,
@@ -96,6 +102,16 @@ export const setScimSchemas = (schemas: ProfileSchema[]): AuthAction => ({
 });
 
 /**
+ * Dispatches an action of type `SET_INITIALIZED`
+ * @param schemas
+ */
+export const setInitialized = (flag: boolean): AuthAction => ({
+    payload: flag,
+    type: authenticateActionTypes.SET_INITIALIZED
+});
+
+
+/**
  * Get SCIM2 schemas
  */
 export const getScimSchemas = (profileInfo: BasicProfileInterface = null) => (dispatch): void => {
@@ -146,10 +162,22 @@ export const getProfileInformation = (updateProfileCompletion = false) => (dispa
 
                         // If `updateProfileCompletion` flag is enabled, update the profile completion.
                         if (updateProfileCompletion && !isCompletionCalculated) {
-                            getProfileCompletion(
-                                infoResponse,
-                                store.getState().authenticationInformation.profileSchemas
-                            );
+                            try {
+                                getProfileCompletion(
+                                    infoResponse,
+                                    store.getState().authenticationInformation.profileSchemas
+                                );
+                            } catch (e) {
+                                dispatch(
+                                    addAlert({
+                                        description: I18n.instance.t("userPortal:components.profile.notifications" +
+                                            ".getProfileCompletion.genericError.description"),
+                                        level: AlertLevels.ERROR,
+                                        message: I18n.instance.t("userPortal:components.profile.notifications" +
+                                            ".getProfileCompletion.genericError.message")
+                                    })
+                                );
+                            }
                         }
 
                         return;
@@ -221,32 +249,78 @@ export const getProfileInformation = (updateProfileCompletion = false) => (dispa
 };
 
 export const initializeAuthentication = () =>(dispatch)=> {
+
     const auth = IdentityClient.getInstance();
 
-    auth.on("http-request-error", onHttpRequestError);
-    auth.on("http-request-finish", onHttpRequestFinish);
-    auth.on("http-request-start", onHttpRequestStart);
-    auth.on("http-request-success", onHttpRequestSuccess);
+    const responseModeFallback: ResponseModeTypes = process.env.NODE_ENV === "production"
+        ? "form_post"
+        : "query";
 
-    auth
-        .initialize({
-            baseUrls: [ window[ "AppUtils" ].getConfig().serverOrigin ],
-            callbackURL: window[ "AppUtils" ].getConfig().loginCallbackURL,
-            clientHost: window[ "AppUtils" ].getConfig().clientOriginWithTenant,
-            clientID: window[ "AppUtils" ].getConfig().clientID,
-            enablePKCE: true,
-            responseMode: process.env.NODE_ENV === "production" ? "form_post" : null,
-            scope: [ TokenConstants.SYSTEM_SCOPE ],
-            serverOrigin: window[ "AppUtils" ].getConfig().serverOriginWithTenant,
-            storage: Storage.WebWorker
+    const storageFallback: Storage = new UAParser().getBrowser().name === "IE"
+        ? Storage.SessionStorage
+        : Storage.WebWorker;
+
+    const initialize = (response?: any): void => {
+        auth.initialize({
+            authorizationCode: response?.data?.authCode,
+            baseUrls: [window["AppUtils"].getConfig().serverOrigin],
+            clientHost: window["AppUtils"].getConfig().clientOriginWithTenant,
+            clientID: window["AppUtils"].getConfig().clientID,
+            enablePKCE: window["AppUtils"].getConfig().idpConfigs?.enablePKCE
+                ?? true,
+            endpoints: {
+                authorize: window["AppUtils"].getConfig().idpConfigs?.authorizeEndpointURL,
+                jwks: window["AppUtils"].getConfig().idpConfigs?.jwksEndpointURL,
+                logout: window["AppUtils"].getConfig().idpConfigs?.logoutEndpointURL,
+                oidcSessionIFrame: window["AppUtils"].getConfig().idpConfigs?.oidcSessionIFrameEndpointURL,
+                revoke: window["AppUtils"].getConfig().idpConfigs?.tokenRevocationEndpointURL,
+                token: window["AppUtils"].getConfig().idpConfigs?.tokenEndpointURL,
+                wellKnown: window["AppUtils"].getConfig().idpConfigs?.wellKnownEndpointURL
+            },
+            responseMode: window["AppUtils"].getConfig().idpConfigs?.responseMode
+                ?? responseModeFallback,
+            scope: window["AppUtils"].getConfig().idpConfigs?.scope
+                ?? [ TokenConstants.SYSTEM_SCOPE ],
+            serverOrigin: window["AppUtils"].getConfig().idpConfigs?.serverOrigin
+                ?? window["AppUtils"].getConfig().idpConfigs.serverOrigin,
+            sessionState: response?.data?.sessionState,
+            signInRedirectURL: window["AppUtils"].getConfig().loginCallbackURL,
+            signOutRedirectURL: window["AppUtils"].getConfig().loginCallbackURL,
+            storage: window["AppUtils"].getConfig().idpConfigs?.storage
+                ?? storageFallback
         });
-    auth.on("sign-in", (response) => {
+
+        dispatch(setInitialized(true));
+    };
+
+    if (process.env.NODE_ENV === "production") {
+        axios.get(window[ "AppUtils" ].getAppBase() + "/auth.jsp").then((response) => {
+            initialize(response);
+        });
+    } else {
+        initialize();
+    }
+
+    auth.on(Hooks.HttpRequestError, onHttpRequestError);
+    auth.on(Hooks.HttpRequestFinish, onHttpRequestFinish);
+    auth.on(Hooks.HttpRequestStart, onHttpRequestStart);
+    auth.on(Hooks.HttpRequestSuccess, onHttpRequestSuccess);
+    auth.on(Hooks.SignIn, (response: UserInfo) => {
+
+        // Update the app base name with the newly resolved tenant.
+        window["AppUtils"].updateTenantQualifiedBaseName(response.tenantDomain);
+
+        // Update the context with new config once the basename is changed.
+        ContextUtils.setRuntimeConfig(Config.getDeploymentConfig());
+
         dispatch(
             setSignIn({
+                displayName: response.displayName,
                 // eslint-disable-next-line @typescript-eslint/camelcase
                 display_name: response.displayName,
                 email: response.email,
                 scope: response.allowedScopes,
+                tenantDomain: response.tenantDomain,
                 username: response.username
             })
         );
@@ -282,11 +356,9 @@ export const handleSignOut = () => (dispatch) => {
     auth
         .signOut()
         .then(() => {
+            AuthenticateUtils.removeAuthenticationCallbackUrl();
             dispatch(setSignOut());
         })
-        .catch(() => {
-            history.push(store?.getState()?.config?.deployment?.appLoginPath);
-        });
 };
 
 /**

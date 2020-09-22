@@ -23,16 +23,15 @@ import {
     TestableComponentInterface
 } from "@wso2is/core/models";
 import { addAlert } from "@wso2is/core/store";
-import { Field, Forms } from "@wso2is/forms"
+import { Field, FormValue, Forms } from "@wso2is/forms"
 import { ConfirmationModal, DangerZone, DangerZoneGroup, EmphasizedSegment } from "@wso2is/react-components";
 import React, { ChangeEvent, FunctionComponent, ReactElement, useEffect, useState } from "react"
 import { Trans, useTranslation } from "react-i18next";
 import { useDispatch } from "react-redux";
 import { Button, Divider, Form, Grid, InputOnChangeData, Label } from "semantic-ui-react"
 import { AppConstants, history } from "../../../core";
-import { updateGroupDetails } from "../../../groups/api";
 import { PRIMARY_USERSTORE_PROPERTY_VALUES, validateInputAgainstRegEx } from "../../../userstores";
-import { deleteRoleById, updateRole } from "../../api";
+import { deleteRoleById, updateRoleDetails } from "../../api";
 import { PatchRoleDataInterface } from "../../models";
 
 /**
@@ -75,7 +74,6 @@ export const BasicRoleDetails: FunctionComponent<BasicRoleProps> = (props: Basic
         onRoleUpdate,
         isGroup,
         isReadOnly,
-        isGroupAndRoleSeparationEnabled,
         [ "data-testid" ]: testId
     } = props;
 
@@ -130,8 +128,7 @@ export const BasicRoleDetails: FunctionComponent<BasicRoleProps> = (props: Basic
      * @param data
      */
     const handleRoleNameChange = (event: ChangeEvent, data: InputOnChangeData): void => {
-        setNameValue(data.value);
-        setIsRoleNamePatternValid(validateInputAgainstRegEx(data.value, userStoreRegEx));
+        setIsRoleNamePatternValid(validateInputAgainstRegEx(data?.value, userStoreRegEx));
     };
 
     /**
@@ -156,9 +153,9 @@ export const BasicRoleDetails: FunctionComponent<BasicRoleProps> = (props: Basic
                 message: t("adminPortal:components.roles.notifications.deleteRole.success.message")
             });
             if (isGroup) {
-                history.push(AppConstants.PATHS.get("GROUPS"));
+                history.push(AppConstants.getPaths().get("GROUPS"));
             } else {
-                history.push(AppConstants.PATHS.get("ROLES"));
+                history.push(AppConstants.getPaths().get("ROLES"));
             }
         });
     };
@@ -167,57 +164,42 @@ export const BasicRoleDetails: FunctionComponent<BasicRoleProps> = (props: Basic
      * Method to update role name for the selected role.
      *
      */
-    const updateRoleName = (): void => {
+    const updateRoleName = (values: Map<string, FormValue>): void => {
+        const newRoleName: string = values?.get("roleName")?.toString();
+
         const roleData: PatchRoleDataInterface = {
             Operations: [{
                 "op": "replace",
                 "path": "displayName",
-                "value": labelText ? labelText + "/" + nameValue : nameValue
+                "value": labelText ? labelText + "/" + newRoleName : newRoleName
             }],
             schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"]
         };
 
-        if (isGroup || isGroupAndRoleSeparationEnabled) {
-            updateGroupDetails(roleObject.id, roleData)
-                .then(() => {
-                    onRoleUpdate();
-                    handleAlerts({
-                        description: t("adminPortal:components.roles.notifications.updateRole.success.description"),
-                        level: AlertLevels.SUCCESS,
-                        message: t("adminPortal:components.roles.notifications.updateRole.success.message")
-                    });
-                }).catch(() => {
+        updateRoleDetails(roleObject.id, roleData)
+            .then(() => {
+                onRoleUpdate();
                 handleAlerts({
-                    description: t("adminPortal:components.roles.notifications.updateRole.error.description"),
-                    level: AlertLevels.ERROR,
-                    message: t("adminPortal:components.roles.notifications.updateRole.error.message")
+                    description: t("adminPortal:components.roles.notifications.updateRole.success.description"),
+                    level: AlertLevels.SUCCESS,
+                    message: t("adminPortal:components.roles.notifications.updateRole.success.message")
                 });
+            }).catch(() => {
+            handleAlerts({
+                description: t("adminPortal:components.roles.notifications.updateRole.error.description"),
+                level: AlertLevels.ERROR,
+                message: t("adminPortal:components.roles.notifications.updateRole.error.message")
             });
-        } else {
-            updateRole(roleObject.id, roleData)
-                .then(() => {
-                    onRoleUpdate();
-                    handleAlerts({
-                        description: t("adminPortal:components.roles.notifications.updateRole.success.description"),
-                        level: AlertLevels.SUCCESS,
-                        message: t("adminPortal:components.roles.notifications.updateRole.success.message")
-                    });
-                }).catch(() => {
-                handleAlerts({
-                    description: t("adminPortal:components.roles.notifications.updateRole.error.description"),
-                    level: AlertLevels.ERROR,
-                    message: t("adminPortal:components.roles.notifications.updateRole.error.message")
-                });
-            });
-        }
+        });
+
     };
 
     return (
         <>
             <EmphasizedSegment>
                 <Forms
-                    onSubmit={ () => {
-                        updateRoleName()
+                    onSubmit={ (values) => {
+                        updateRoleName(values)
                     } }
                 >
                     <Grid>
@@ -241,7 +223,7 @@ export const BasicRoleDetails: FunctionComponent<BasicRoleProps> = (props: Basic
                                     </label>
                                     <Field
                                         required={ true }
-                                        name={ "rolename" }
+                                        name={ "roleName" }
                                         label={ labelText !== "" ? labelText + " /" : null }
                                         requiredErrorMessage={
                                             isGroup
